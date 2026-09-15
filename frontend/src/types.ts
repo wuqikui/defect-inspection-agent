@@ -124,14 +124,18 @@ export interface ProviderStatus {
   configured: boolean
   supports_vision: boolean
   chat_model: string
+  /** 脱敏 Key 提示（如 sk-1****abcd），未配置为空串 */
+  key_hint: string
   selected: boolean
+  selected_vision: boolean
 }
 
 export interface ModelStatus {
   active_text_provider: string
   active_vision_provider: string
   offline_mode: boolean
-  sam_available: boolean
-  sam_device: string
+  dnn_pipeline_enabled: boolean
+  sentinel_ready: boolean
+  locator_ready: boolean
   providers: ProviderStatus[]
 }

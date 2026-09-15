@@ -24,6 +24,7 @@ from app.config import settings
 from app.db.database import db
 from app.services.chunker import Chunk
 from app.services.embeddings import EmbeddingClient, get_embedding_client
+from app.services.llm.factory import resolve_text_provider
 
 _COLLECTION = "rule_chunks"
 _META_KEY = "embedding_provider"
@@ -88,9 +89,40 @@ class VectorStore:
 
     @staticmethod
     def _prefer_provider() -> str:
-        """根据文本 LLM 选择推断优先的 embedding 提供方。"""
-        p = settings.llm_provider.strip().lower()
+        """根据文本 LLM 选择推断优先的 embedding 提供方（跟随前端配置）。"""
+        p = resolve_text_provider()
         return p if p in {"zhipu", "qwen"} else ""
+
+    def refresh_provider(self) -> bool:
+        """
+        API Key 前端保存后的热切换：重新选定 embedding 提供方。
+
+        * 提供方不变（可能只是换了 Key）→ 静默替换客户端，返回 False；
+        * 提供方变化 → 语义空间不兼容，清空集合并等待服务层重建，返回 True。
+        """
+        with self._lock:
+            new_embedder = get_embedding_client(self._prefer_provider())
+            if new_embedder.name == self._provider:
+                self._embedder = new_embedder
+                return False
+            self._embedder = new_embedder
+            self._provider = new_embedder.name
+            try:
+                self._client.delete_collection(_COLLECTION)
+            except Exception:  # noqa: BLE001 集合不存在等场景直接忽略
+                pass
+            self._collection = self._client.get_or_create_collection(
+                name=_COLLECTION,
+                metadata={"hnsw:space": "cosine"},
+            )
+            db.execute(
+                """
+                INSERT INTO app_meta(key, value) VALUES(?, ?)
+                ON CONFLICT(key) DO UPDATE SET value=excluded.value
+                """,
+                (_META_KEY, self._provider),
+            )
+            return True
 
     @property
     def provider(self) -> str:

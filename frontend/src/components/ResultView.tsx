@@ -50,7 +50,7 @@ export default function ResultView({ job }: { job: InspectionJob }) {
           <svg
             className="overlay"
             viewBox={`0 0 ${job.width} ${job.height}`}
-            preserveAspectRatio="none"
+            preserveAspectRatio="xMidYMid meet"
           >
             {job.defects.map((d, i) => {
               const color = colorOf(d.defect_type)

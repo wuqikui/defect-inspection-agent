@@ -32,7 +32,7 @@ class DefectResult(BaseModel):
     confidence: float = Field(ge=0, le=1, description="模型置信度")
     bbox: BoundingBox
     segmentation_available: bool = Field(
-        default=False, description="是否已生成精确分割掩膜（SAM/OpenCV）"
+        default=False, description="是否已生成像素级轮廓（OpenCV ROI 提取）"
     )
     mask_polygon: Optional[List[List[int]]] = Field(
         default=None, description="掩膜轮廓点序列 [[x,y],...]，供前端高亮填充"

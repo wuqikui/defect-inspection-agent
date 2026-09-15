@@ -24,6 +24,11 @@ Pillow>=10.4                      # 图像读写 / 大图安全保护
 numpy>=1.26,<3                    # 滑窗裁剪 / NMS 矩阵运算（兼容 NumPy 2）
 opencv-python-headless>=4.10      # 无 GUI 版 OpenCV：离线兜底分割（轮廓发现）
 
+# ---- 本地深度模型推理（CPU） ----
+# PatchCore 哨兵（resnet18_features.onnx）+ YOLO-World 定位
+# （yolov8s-worldv2.onnx）的运行时；模型文件随项目分发于 backend/models/
+onnxruntime>=1.18
+
 # ---- RAG 向量库 ----
 chromadb>=0.5.20                  # 本地持久化向量库（HNSW + 余弦距离，兼容 NumPy 2）
 
@@ -31,7 +36,9 @@ chromadb>=0.5.20                  # 本地持久化向量库（HNSW + 余弦距�
 httpx>=0.27                       # 调用智谱 / 千问 / DeepSeek 的异步客户端
 
 # =====================================================================
-# 可选依赖（SAM 精确分割，默认使用 OpenCV 兜底，无需安装）：
-#   pip install torch==2.4.1 segment-anything==1.0
-# 并将 sam_vit_b_01ec64.pth 权重放入 backend/data/sam_checkpoints/
+# 可选依赖：
+# 1) SAM 精确分割已弃用（内存开销大），如需启用见 app/services/vision/segmenter.py
+# 2) 深度模型导出（仅更新 backend/models/ 下 ONNX 时需要，运行时不依赖）：
+#    pip install torch torchvision ultralytics onnx onnxscript onnxslim
+#    python scripts/prepare_models.py
 # =====================================================================

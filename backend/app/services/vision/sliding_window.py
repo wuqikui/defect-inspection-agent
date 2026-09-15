@@ -25,6 +25,7 @@ import math
 from dataclasses import dataclass
 from typing import List, Tuple
 
+import numpy as np
 from PIL import Image
 
 from app.config import settings
@@ -141,3 +142,54 @@ def restore_bbox(bbox: List[float], tile: Tile,
     w = max(1, min(w, orig_width - x))
     h = max(1, min(h, orig_height - y))
     return x, y, w, h
+
+
+# ----------------------------------------------------------------------
+# 动态切片（滑窗升级版）：仅在哨兵标记的高危区域附近开窗
+# ----------------------------------------------------------------------
+def plan_region_tiles(
+    regions: List[Dict],
+    width: int, height: int,
+) -> Tuple[List[Tile], bool]:
+    """
+    依据 PatchCore 哨兵输出的高危区域规划【动态检测窗】。
+
+    规则：
+    * 小图（≤ tile_max_size）：整图 resize 单检，成本极低，不依赖哨兵；
+    * 大图：只为高危区域开窗 —— 窗边长随区域尺寸自适应
+      （clip(区域长边×tile_scale, tile_min_size, tile_max_size)），
+      中心对齐区域中心并钳制到图内；区域中心已落在既有窗内的合并跳过；
+      无高危区域 → 返回空窗列表（100% 正常区域直接放行，不再盲扫）。
+
+    :param regions: [{"bbox":[x,y,w,h], "score":float}]（哨兵输出，按分降序）
+    :return: (窗列表, 是否为整图resize单检模式)
+    """
+    max_size = settings.tile_max_size
+    if max(width, height) <= max_size:
+        return [Tile(index=0, x=0, y=0, size=max_size, resized=True)], True
+
+    tiles: List[Tile] = []
+    for region in regions:
+        if len(tiles) >= settings.tile_max_count:
+            break
+        x, y, w, h = region["bbox"]
+        cx, cy = x + w / 2.0, y + h / 2.0
+        side = int(np.clip(
+            max(w, h) * settings.tile_scale,
+            min(settings.tile_min_size, min(width, height)),
+            min(max_size, min(width, height)),
+        ))
+        tx = int(np.clip(cx - side / 2.0, 0, width - side))
+        ty = int(np.clip(cy - side / 2.0, 0, height - side))
+        # 合并：区域中心已覆盖于既有窗内（含 20% 余量）则不再开新窗
+        covered = any(
+            t.x - 0.2 * t.size <= cx <= t.x + t.size * 1.2
+            and t.y - 0.2 * t.size <= cy <= t.y + t.size * 1.2
+            for t in tiles
+        )
+        if covered:
+            continue
+        tiles.append(
+            Tile(index=len(tiles), x=tx, y=ty, size=side, resized=False)
+        )
+    return tiles, False

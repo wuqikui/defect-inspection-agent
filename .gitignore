@@ -28,3 +28,12 @@ backend/.env
 .idea/
 .DS_Store
 Thumbs.db
+
+# ===== 大模型原始权重（GitHub 单文件 100MB 限制，ONNX 已随项目内置） =====
+*.pt
+*.pth
+weights/
+
+# ===== 调试临时脚本 =====
+backend/scripts/diag_*.py
+backend/scripts/_*.py

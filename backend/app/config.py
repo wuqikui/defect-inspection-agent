@@ -50,6 +50,46 @@ class Settings(BaseSettings):
     det_confidence_threshold: float = 0.35  # 缺陷置信度过滤阈值
     nms_iou_threshold: float = 0.30         # 跨滑窗重复检测框 NMS 的 IoU 阈值
 
+    # ---------- 深度模型管线（PatchCore 哨兵 + YOLO-World 定位） ----------
+    # 模型 ONNX 随项目分发于 backend/models/（scripts/prepare_models.py 导出）；
+    # 运行时仅需 onnxruntime（CPU），缺失模型时自动退回旧版盲滑窗管线。
+    dnn_pipeline_enabled: bool = True       # 总开关
+    sentinel_input_size: int = 448          # 哨兵条带推理分辨率（32 的倍数）
+    sentinel_band_size: int = 2048          # 哨兵条带最大边长（长图切条防过度压缩）
+    sentinel_coreset_ratio: float = 0.01    # PatchCore coreset 采样比例（控内存）
+    sentinel_max_bank: int = 512            # 记忆库上限（条）
+    sentinel_bank_quantile: float = 0.50    # 正常核比例：与粗库距离最小的前 N 部分参与建库
+    sentinel_bg_gray: int = 8               # 产品区域灰度地板（低于视为背景）
+    sentinel_border_px: int = 48            # 图像边缘缓冲带（卷积零填充伪影剔除）
+    sentinel_threshold_percentile: float = 99.0  # 异常阈值：距离分布百分位
+    sentinel_abs_floor: float = 0.12        # 异常阈值绝对下限（余弦距离）
+    sentinel_min_region_px: int = 24        # 高危区域最短边（原图像素）
+    sentinel_max_region_frac: float = 0.25  # 高危区域面积占比上限（过大视为光照异常）
+    sentinel_max_regions: int = 12          # 高危区域输出上限（按分数取 top-K）
+    sentinel_patch_px: int = 32             # 热力图栅格粒度（原图像素/格）
+    yolo_input_size: int = 640              # YOLO-World 推理分辨率
+    yolo_conf_threshold: float = 0.01       # 定位置信度下限（零样本模型分值偏低，
+                                            #   候选已在哨兵区域约束内，误报交由裁判过滤）
+    yolo_iou_threshold: float = 0.45        # 切片内 NMS IoU
+    yolo_max_det_per_tile: int = 20         # 每切片检测框上限
+    tile_max_size: int = 1024               # 动态切片窗边长上限
+    tile_min_size: int = 320                # 动态切片窗边长下限
+    tile_scale: float = 3.0                 # 窗边长 = 高危区域长边 × 该系数
+    tile_max_count: int = 12                # 单图动态切片数量上限
+    judge_max_candidates: int = 24          # VLM 裁决候选上限（控 API 成本）
+    judge_crop_margin_scale: float = 1.5    # 裁剪外扩系数（相对框长边）
+    judge_crop_margin_px: int = 64          # 裁剪外扩最小像素
+    judge_crop_max_side: int = 1024         # 裁剪图长边上限
+    judge_heuristic_contrast: float = 50.0  # 离线启发式裁判：显著性对比度阈值
+                                            #   （均值差 / P90差 / P10差 取最大，
+                                            #   实测真缺陷区域 ≥65、纹理噪声 ≤45）
+    # 哨兵幅度判据（第二证据）：margin = 区域哨兵分 − 全图距离中位数。
+    # 实测真缺陷图区域稀少且 margin ≥0.248，纹理噪声长图区域饱和
+    # （12 个）且 margin ≤0.274，故按区域是否饱和分档取阈值。
+    judge_sentinel_margin_sparse: float = 0.24  # 区域稀少时的幅度阈值（宽）
+    judge_sentinel_margin_dense: float = 0.40   # 区域饱和时的幅度阈值（严）
+    judge_sparse_regions: int = 3               # 稀少/饱和的区域数分界
+
     # ---------- RAG 检索参数 ----------
     retrieval_top_k: int = 4                # 每次规则检索返回的最相关片段数
     # 相似度阈值：Chroma 返回余弦距离 distance ∈ [0,2]，similarity = 1-distance
@@ -76,12 +116,6 @@ class Settings(BaseSettings):
     deepseek_chat_model: str = "deepseek-chat"
     llm_timeout_seconds: int = 60           # LLM 请求超时
     llm_max_retries: int = 2                # 失败重试次数
-
-    # ---------- SAM 分割（可选） ----------
-    # 未安装 segment-anything / 未配置权重时，自动降级为 OpenCV 轮廓分割
-    sam_checkpoint_path: str = ""
-    sam_model_type: str = "vit_b"           # vit_b / vit_l / vit_h
-    sam_device: str = "auto"                # auto / cpu / cuda
 
     # ---------- 任务进度 ----------
     job_result_ttl_hours: int = 24 * 7      # 检测任务临时状态保留时长
@@ -117,9 +151,9 @@ class Settings(BaseSettings):
         return self.data_dir / "app.db"
 
     @property
-    def sam_dir(self) -> Path:
-        """SAM 权重文件目录。"""
-        return self.data_dir / "sam_checkpoints"
+    def models_dir(self) -> Path:
+        """深度模型 ONNX 目录（随项目分发，scripts/prepare_models.py 导出）。"""
+        return BASE_DIR / "models"
 
     @property
     def cors_origin_list(self) -> List[str]:
@@ -141,7 +175,6 @@ class Settings(BaseSettings):
             self.upload_dir,
             self.result_dir,
             self.vector_dir,
-            self.sam_dir,
         ):
             d.mkdir(parents=True, exist_ok=True)
 

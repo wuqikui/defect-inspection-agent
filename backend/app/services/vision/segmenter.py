@@ -1,20 +1,16 @@
 # -*- coding: utf-8 -*-
 """
-缺陷部位精确分割
-================
-两级实现，接口完全一致：
+缺陷部位精确分割（轻量局部 ROI 轮廓抠图）
+==========================================
+角色：检测管线最后一级"像素级落地"。仅在缺陷 bbox 的 ROI 内做
+对比度增强 + 大津法二值化 + 形态学闭运算 + 轮廓提取（耗时毫秒级），
+输出多边形点序列（原图坐标），供前端半透明高亮渲染。
 
-1. SAM（Segment Anything Model，Meta）—— 首选：
-   用检测框作为 box prompt，由 SAM 预测像素级掩膜，精度最高。
-   仅当 (a) 已安装 torch + segment_anything，(b) 权重文件存在时启用。
-2. OpenCV 轮廓分割 —— 自动兜底：
-   在检测框 ROI 内做 CLAHE 对比度增强 + Otsu 阈值，取最大轮廓。
+自适应极性：分别尝试"暗于背景"与"亮于背景"两个二值化方向，
+以 ROI 内外对比度更大者为准 —— 兼容暗底亮缺陷与亮底暗缺陷。
 
-输出统一为多边形点序列 ``[[x, y], ...]``（原图坐标），
-前端可用该多边形做半透明高亮填充。
-
-SAM 为可选重依赖（torch 体积大），默认不安装，系统自动降级，
-符合“模型接口标准化、便于替换升级”的要求。
+历史说明：SAM 分割方案因本地推理内存开销过大被正式弃用，
+SAMSegmenter 类仅作保留参考，工厂函数不再构建。
 """
 from __future__ import annotations
 
@@ -30,7 +26,7 @@ from app.config import settings
 
 
 class OpenCVSegmenter:
-    """OpenCV 兜底分割器（始终可用）。"""
+    """OpenCV ROI 轮廓分割器（始终可用）。"""
 
     name = "opencv"
 
@@ -59,26 +55,49 @@ class OpenCVSegmenter:
         clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
         enhanced = clahe.apply(gray)
         # Otsu 自动阈值 + 形态学闭运算填补孔洞
-        _, binary = cv2.threshold(
-            enhanced, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU
+        otsu_thr, _ = cv2.threshold(
+            enhanced, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU
         )
         kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
-        binary = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kernel, iterations=2)
 
-        contours, _ = cv2.findContours(
-            binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
-        )
-        if not contours:
-            return None
-        # 取面积最大的轮廓作为缺陷外形
-        cnt = max(contours, key=cv2.contourArea)
-        if cv2.contourArea(cnt) < 8:
-            return None
-        epsilon = 0.01 * cv2.arcLength(cnt, closed=True)
-        approx = cv2.approxPolyDP(cnt, epsilon, closed=True)
-        # 坐标加回 ROI 偏移，回到原图坐标系
-        polygon = [[int(p[0][0]) + x0, int(p[0][1]) + y0] for p in approx]
-        return polygon if len(polygon) >= 3 else None
+        def _pick(inverse: bool):
+            binary = (
+                enhanced < otsu_thr if inverse else enhanced > otsu_thr
+            ).astype(np.uint8) * 255
+            binary = cv2.morphologyEx(
+                binary, cv2.MORPH_CLOSE, kernel, iterations=2
+            )
+            contours, _ = cv2.findContours(
+                binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+            )
+            if not contours:
+                return None
+            cnt = max(contours, key=cv2.contourArea)
+            if cv2.contourArea(cnt) < 8:
+                return None
+            epsilon = 0.01 * cv2.arcLength(cnt, closed=True)
+            approx = cv2.approxPolyDP(cnt, epsilon, closed=True)
+            if len(approx) < 3:
+                return None
+            polygon = [
+                [int(p[0][0]) + x0, int(p[0][1]) + y0] for p in approx
+            ]
+            # 极性打分：轮廓内部与外围邻域的灰度差（绝对值越大越可信）
+            mask = np.zeros(gray.shape, np.uint8)
+            cv2.drawContours(mask, [cnt], -1, 255, -1)
+            inner_mean = float(gray[mask > 0].mean())
+            ring = gray[mask == 0]
+            outer_mean = float(ring.mean()) if ring.size else inner_mean
+            return polygon, abs(inner_mean - outer_mean)
+
+        # 两个极性择优：兼容暗底亮缺陷与亮底暗缺陷
+        best: Optional[List[List[int]]] = None
+        best_score = -1.0
+        for inverse in (True, False):
+            picked = _pick(inverse)
+            if picked is not None and picked[1] > best_score:
+                best, best_score = picked[0], picked[1]
+        return best
 
 
 class SAMSegmenter:
@@ -137,49 +156,15 @@ class SAMSegmenter:
         return polygon if len(polygon) >= 3 else None
 
 
-def _try_build_sam() -> Optional[SAMSegmenter]:
-    """检测依赖与权重，齐备则构造 SAM；否则返回 None。"""
-    ckpt = settings.sam_checkpoint_path.strip()
-    if not ckpt:
-        # 也接受放到默认目录的 vit_b 权重
-        default = settings.sam_dir / f"sam_{settings.sam_model_type}_*.pth"
-        candidates = list(settings.sam_dir.glob("sam_*.pth"))
-        if not candidates:
-            return None
-        ckpt = str(candidates[0])
-    if not Path(ckpt).exists():
-        return None
-    try:
-        import torch  # noqa: F401
-        import segment_anything  # noqa: F401
-    except Exception:  # noqa: BLE001
-        return None
-    try:
-        return SAMSegmenter(ckpt, settings.sam_model_type, settings.sam_device)
-    except Exception:  # noqa: BLE001
-        return None
-
-
-# 模块级单例（惰性）
-_sam_instance: Optional[SAMSegmenter] = None
+# 模块级单例
 _opencv_instance = OpenCVSegmenter()
-_probed = False
-_probe_lock = threading.Lock()
 
 
 def get_segmenter():
     """
-    获取当前最佳分割器：
-    优先 SAM（惰性探测一次），失败则恒为 OpenCV 实现。
-    返回 (segmenter, is_sam)。
+    获取分割器：SAM 已正式弃用（本地内存开销过大），恒为 OpenCV 实现。
+    返回 (segmenter, is_sam=False)。保留返回二元组以兼容既有调用方。
     """
-    global _sam_instance, _probed
-    with _probe_lock:
-        if not _probed:
-            _sam_instance = _try_build_sam()
-            _probed = True
-    if _sam_instance is not None:
-        return _sam_instance, True
     return _opencv_instance, False
 
 

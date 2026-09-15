@@ -56,7 +56,7 @@ app = FastAPI(
     title="多模态缺陷检测智能体 API",
     description=(
         "规则文档（PDF/DOCX）上传 → RAG 知识库 → 跨文档冲突确认 → "
-        "工业图片滑窗缺陷检测（多模态模型 / SAM / CV 兜底）→ 历史回溯"
+        "工业图片缺陷检测（PatchCore 哨兵 + YOLO-World 定位 + VLM/启发式裁判）→ 历史回溯"
     ),
     version=__version__,
     lifespan=lifespan,

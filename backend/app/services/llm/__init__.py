@@ -16,6 +16,12 @@ from app.services.llm.factory import (
     get_text_llm,
     get_vision_llm,
     list_provider_status,
+    reload_llm_runtime,
 )
 
-__all__ = ["get_text_llm", "get_vision_llm", "list_provider_status"]
+__all__ = [
+    "get_text_llm",
+    "get_vision_llm",
+    "list_provider_status",
+    "reload_llm_runtime",
+]

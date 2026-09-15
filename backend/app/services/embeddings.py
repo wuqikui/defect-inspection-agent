@@ -28,6 +28,7 @@ import numpy as np
 
 from app.config import settings
 from app.core.exceptions import ModelCallError
+from app.services import key_store
 
 # 全局统一向量维度
 EMBED_DIM = 1024
@@ -198,11 +199,11 @@ class LocalHashingEmbedding(EmbeddingClient):
 # 工厂
 # =====================================================================
 def available_embedding_providers() -> List[str]:
-    """按固定优先级返回“已配置可用”的在线提供方。"""
+    """按固定优先级返回“已配置可用”的在线提供方（Key：前端保存 > .env）。"""
     available = []
-    if settings.zhipu_api_key:
+    if key_store.resolve_api_key("zhipu"):
         available.append("zhipu")
-    if settings.qwen_api_key:
+    if key_store.resolve_api_key("qwen"):
         available.append("qwen")
     return available
 
@@ -214,18 +215,21 @@ def get_embedding_client(prefer: str = "") -> EmbeddingClient:
 
     :param prefer: 期望提供方（zhipu/qwen/local）；与文本 LLM 选择保持联动
     """
+    zhipu_key = key_store.resolve_api_key("zhipu")
+    qwen_key = key_store.resolve_api_key("qwen")
+
     if prefer == "local":
         return LocalHashingEmbedding()
-    if prefer == "zhipu" and settings.zhipu_api_key:
-        return ZhipuEmbedding(settings.zhipu_api_key, settings.zhipu_embedding_model)
-    if prefer == "qwen" and settings.qwen_api_key:
-        return QwenEmbedding(settings.qwen_api_key, settings.qwen_embedding_model)
+    if prefer == "zhipu" and zhipu_key:
+        return ZhipuEmbedding(zhipu_key, settings.zhipu_embedding_model)
+    if prefer == "qwen" and qwen_key:
+        return QwenEmbedding(qwen_key, settings.qwen_embedding_model)
 
     # 自动选择：跟随配置好的 Key
-    if settings.zhipu_api_key:
-        return ZhipuEmbedding(settings.zhipu_api_key, settings.zhipu_embedding_model)
-    if settings.qwen_api_key:
-        return QwenEmbedding(settings.qwen_api_key, settings.qwen_embedding_model)
+    if zhipu_key:
+        return ZhipuEmbedding(zhipu_key, settings.zhipu_embedding_model)
+    if qwen_key:
+        return QwenEmbedding(qwen_key, settings.qwen_embedding_model)
 
     # 无任何 Key：离线模式，系统仍可完整跑通
     return LocalHashingEmbedding()

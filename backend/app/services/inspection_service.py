@@ -323,6 +323,13 @@ class InspectionService:
             for h in hits
         ]
 
+    # 检测引擎展示名（engine 标识 → 人类可读描述）
+    _ENGINE_LABELS = {
+        "vlm": "本地定位+多模态大模型裁决",
+        "yolo": "本地深度模型（PatchCore 哨兵 + YOLO-World 定位）",
+        "cv": "经典视觉算法（离线兜底）",
+    }
+
     async def _compose_summary(self, defects: List[Dict], engine: str) -> str:
         """生成结论文本：优先让文本 LLM 组织，失败用模板兜底。"""
         if not defects:
@@ -332,10 +339,10 @@ class InspectionService:
         for d in defects:
             counter[d["defect_type"]] = counter.get(d["defect_type"], 0) + 1
         type_text = "、".join(f"{k}×{v}" for k, v in counter.items())
+        engine_label = self._ENGINE_LABELS.get(engine, engine)
         template = (
             f"共检出 {len(defects)} 处缺陷：{type_text}。"
-            f"检测引擎：{'多模态大模型' if engine == 'vlm' else '经典视觉算法(离线兜底)'}，"
-            "请结合标注框与规则依据复核。"
+            f"检测引擎：{engine_label}，请结合标注框与规则依据复核。"
         )
         try:
             llm = get_text_llm()

@@ -19,6 +19,7 @@ import httpx
 
 from app.config import settings
 from app.core.exceptions import ModelCallError
+from app.services import key_store
 from app.services.llm.base import BaseLLM, Message
 
 
@@ -153,7 +154,7 @@ def make_zhipu() -> OpenAICompatibleLLM:
         name="zhipu",
         label="智谱 GLM",
         base_url="https://open.bigmodel.cn/api/paas/v4",
-        api_key=settings.zhipu_api_key,
+        api_key=key_store.resolve_api_key("zhipu"),
         chat_model=settings.zhipu_chat_model,
         vision_model=settings.zhipu_vision_model,
         supports_vision=bool(settings.zhipu_vision_model),
@@ -166,7 +167,7 @@ def make_qwen() -> OpenAICompatibleLLM:
         name="qwen",
         label="阿里千问",
         base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
-        api_key=settings.qwen_api_key,
+        api_key=key_store.resolve_api_key("qwen"),
         chat_model=settings.qwen_chat_model,
         vision_model=settings.qwen_vision_model,
         supports_vision=bool(settings.qwen_vision_model),
@@ -179,7 +180,7 @@ def make_deepseek() -> OpenAICompatibleLLM:
         name="deepseek",
         label="DeepSeek",
         base_url="https://api.deepseek.com/v1",
-        api_key=settings.deepseek_api_key,
+        api_key=key_store.resolve_api_key("deepseek"),
         chat_model=settings.deepseek_chat_model,
         vision_model="",
         supports_vision=False,
