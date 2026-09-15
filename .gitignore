@@ -1,0 +1,30 @@
+# ===== Python =====
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+.conda-env/
+.pytest_cache/
+.mypy_cache/
+
+# ===== Node / 前端 =====
+node_modules/
+frontend/dist/
+*.tsbuildinfo
+
+# ===== 运行时数据（文档 / 图片 / 向量库 / SQLite） =====
+backend/data/
+!backend/data/.gitkeep
+*.db
+*.db-wal
+*.db-shm
+
+# ===== 环境变量（含密钥，禁止提交） =====
+.env
+backend/.env
+
+# ===== 编辑器 / 系统 =====
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

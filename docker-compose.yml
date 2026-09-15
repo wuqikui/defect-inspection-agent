@@ -1,0 +1,36 @@
+# =====================================================================
+# 多模态缺陷检测智能体 —— 一键容器化部署
+# 用法：
+#   1. （可选）复制 backend/.env.example 为 backend/.env 并填入 API Key
+#   2. docker compose up -d --build
+#   3. 浏览器访问 http://localhost  （后端文档 http://localhost:8000/docs）
+# 数据持久化：backend/data 挂载为命名卷，重启 / 升级不丢失知识库
+# =====================================================================
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: defect-agent-backend
+    ports:
+      - "8000:8000"
+    env_file:
+      - path: ./backend/.env
+        required: false
+    volumes:
+      - backend-data:/app/data
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: defect-agent-frontend
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+volumes:
+  backend-data:
